@@ -32,7 +32,7 @@ shu_baoshan_map/
 │  ├─ render.py                  ← GeoJSON → SVG（1 单位 = 1 米）
 │  └─ preview.py                 ← GeoJSON → PNG（matplotlib，需 CJK 字体）
 │
-└─ 02_roads_routing/             ← 阶段二~五：路网 / 寻路 / 应用
+├─ 02_roads_routing/             ← 阶段二~五：路网 / 寻路 / 应用
    ├─ extract_roads.py           ← OSM → graph.json + roads.geojson + roads_index.csv
    ├─ graph.json                 ← 路网图（1890 节点 / 2136 边 / 63.7 km）
    ├─ roads.geojson              ← 每条可通行道路的线要素（含宽度/等级）
@@ -50,6 +50,14 @@ shu_baoshan_map/
       ├─ router.js               ← 寻路核心（纯 JS，可被 Node 测试）
       ├─ graph_compact.json      ← 压缩后的路网数据
       └─ vendor/leaflet.{js,css} ← 内联用 Leaflet 1.9.4
+│
+└─ 03_schedule/                  ← 阶段六：课表 / 报时系统
+   ├─ schedule.json              ← 课表数据（课程/周次/教室/楼坐标/余量参数）
+   ├─ build_schedule.py          ← 生成 plan.md 与 schedule.html
+   ├─ schedule_template.html     ← 报时页面模板
+   ├─ schedule.html              ← 报时系统（单文件，实时倒计时 + 语音播报）
+   ├─ plan.md                    ← 生活时间安排表（含最晚出发时间）
+   └─ schedule_preview.png
 ```
 
 ---
@@ -226,7 +234,39 @@ node -e "const {RouterCore}=require('./web/router.js');const d=require('./web/gr
 
 ---
 
-## 9. 备份与版本
+## 9. 课表与报时系统（`03_schedule/`）
+
+- **`schedule.json`**：课表数据。字段：`semester_start`、`periods`（节次→起止时间）、`home`、`locations`（楼名→经纬度）、`courses`（`day/periods/name/room/building/weeks/tentative`）、`buffer`（余量参数）。
+- **`build_schedule.py`**：
+  - 用 `routing.py` 算楼与楼之间的**骑车时间**；
+  - **通勤时间 = 骑车 × (1 + risk_ratio) + base_min**（默认 30% + 3 分钟，用于红绿灯/绕路/找车/锁车/进楼找教室等突发）；
+  - 生成 `plan.md`（生活时间安排表，含每天每节课的**最晚出发时间**）；
+  - 生成 `schedule.html`（报时系统）。
+- **`schedule.html`**：
+  - 按**当前日期 + 周次**过滤当天课程（周次规则写在 `weeks` 字段）；
+  - 内联 `router.js` + `graph_compact.json`，**实时用路网算骑车时间**；
+  - 显示今日时间轴（出发/上课/地点/通勤）、**下一件事倒计时**、本周课表；
+  - **语音播报**（Web Speech API）：出发前 5 分钟、出发时刻、上课前 5 分钟、上课时刻；
+  - 与地图互相跳转（地图页「课表」按钮 / 课表页「地图」按钮）。
+
+### 上课时间表
+| 节 | 时间 | 节 | 时间 |
+|---|---|---|---|
+| 1 | 08:00–08:45 | 7 | 15:00–15:45 |
+| 2 | 08:55–09:40 | 8 | 15:55–16:40 |
+| 3 | 10:00–10:45 | 9 | 18:00–18:45 |
+| 4 | 10:55–11:40 | 10 | 18:55–19:40 |
+| 5 | 13:00–13:45 | 11 | 20:00–20:45 |
+| 6 | 13:55–14:40 | 12 | 20:55–21:40 |
+
+### 楼坐标（WGS-84，OSM 中心点）
+南区11号楼 `121.384831,31.312046`（住处）；A楼 `121.390886,31.315309`；C楼 `121.390640,31.316291`；D楼 `121.390308,31.316709`；DJ楼 `121.391034,31.317034`；EJ楼 `121.390405,31.318109`；计算机楼 `121.395216,31.319135`；环化楼 `121.395367,31.321065`；体育馆 `121.390784,31.321418`。
+
+> ⚠ 教室号里 `E*/D*` 后面常带 **J**（如 **EJ306 / DJ208**），极易看成 E806/D408 —— 已按放大截图逐一核对。
+
+---
+
+## 10. 备份与版本
 
 `C:\Users\zhong\shu_baoshan_map_backups\`（文件夹 + zip）：
 
@@ -244,11 +284,13 @@ node -e "const {RouterCore}=require('./web/router.js');const d=require('./web/gr
 | v11 | 实时定位 + 指南针 |
 | v12 | PWA 打包 |
 | v13 | 回退为在线瓦片 |
+| v14 | 增加 README（本文档） |
+| v15 | 课表 / 报时系统（`03_schedule/`） |
 | （之后） | 指南针指北修复 + 校准、朝向箭头、导航模式 |
 
 ---
 
-## 10. 给接手的 AI 的建议
+## 11. 给接手的 AI 的建议
 
 - **改 UI** → `web/app_template.html`；**改算法/数据格式** → `web/router.js` 与 `extract_roads.py`；改完**必须**重跑 `build_app.py` 再 `build_pwa.py`。
 - **不要在 `pwa/` 里直接改**（会被 `build_pwa.py` 覆盖，除 `.git` 外）。
