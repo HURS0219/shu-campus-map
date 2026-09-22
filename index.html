@@ -692,6 +692,11 @@ svg.leaflet-image-layer.leaflet-interactive path {
   .step .dist{color:#888;margin-left:auto;white-space:nowrap;}
   #legend{bottom:calc(8px + env(safe-area-inset-bottom));right:8px;padding:8px 10px;font-size:12px;line-height:1.6;}
   #legend i{display:inline-block;width:16px;height:4px;border-radius:2px;vertical-align:middle;margin-right:5px;}
+  #compassBox{position:absolute;right:8px;top:118px;z-index:1000;width:64px;padding:6px 4px;text-align:center;
+    background:rgba(255,255,255,.96);border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.18);display:none;}
+  #compassBox svg{display:block;margin:0 auto;}
+  #compassBox .deg{font-size:11px;color:#333;margin-top:2px;}
+  #compassBox .sub{font-size:9px;color:#999;}
   #status{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1200;
           background:rgba(0,0,0,.75);color:#fff;padding:10px 16px;border-radius:8px;font-size:14px;display:none;}
 </style>
@@ -739,6 +744,19 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <div id="bottom" class="panel">
   <div id="summary"></div>
   <div id="steps"></div>
+</div>
+
+<div id="compassBox">
+  <svg width="52" height="52" viewBox="0 0 52 52">
+    <circle cx="26" cy="26" r="24" fill="#fff" stroke="#dcdcdc"/>
+    <text x="26" y="9" text-anchor="middle" font-size="8" fill="#999">N</text>
+    <g id="needle">
+      <polygon points="26,5 30,26 26,22 22,26" fill="#d00000"/>
+      <polygon points="26,47 30,26 26,30 22,26" fill="#9aa0a6"/>
+    </g>
+  </svg>
+  <div class="deg" id="compassDeg">--°</div>
+  <div class="sub" id="compassKind"></div>
 </div>
 
 <div id="status"></div>
@@ -1001,6 +1019,11 @@ svg.leaflet-image-layer.leaflet-interactive path {
   var start=null, end=null, startM=null, endM=null, routeLine=null;
   var meMarker=null, meCircle=null, meCone=null, watchId=null;
   var lastFix=null, heading=null, follow=true, liveOn=false, lastOrient=0;
+  var compassBox=document.getElementById('compassBox');
+  var needle=document.getElementById('needle');
+  var compassDeg=document.getElementById('compassDeg');
+  var compassKind=document.getElementById('compassKind');
+  var orientSeen=false, orientTimer=null;
 
   function stopWatch(){ if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; } }
 
@@ -1029,29 +1052,51 @@ svg.leaflet-image-layer.leaflet-interactive path {
     if(follow) map.setView([lat,lon], Math.max(map.getZoom(),17), {animate:false});
   }
 
-  function onOrientation(e){
-    var h=null;
-    if(e.webkitCompassHeading!=null && !isNaN(e.webkitCompassHeading)) h=e.webkitCompassHeading;
-    else if(e.absolute && e.alpha!=null) h=(360-e.alpha)%360;
-    if(h==null) return;
-    heading=h;
+  function setHeading(h, absolute){
+    heading=h; orientSeen=true;
+    if(compassBox) compassBox.style.display='block';
+    if(needle) needle.setAttribute('transform','rotate('+h.toFixed(0)+' 26 26)');
+    var dirs=['北','东北','东','东南','南','西南','西','西北'];
+    var d=dirs[Math.floor(((h+22.5)%360)/45)];
+    if(compassDeg) compassDeg.textContent=Math.round(h)+'° '+d;
+    if(compassKind) compassKind.textContent = absolute ? '磁北' : '相对';
     var now=Date.now();
     if(now-lastOrient>100){ lastOrient=now; drawCone(); }
   }
 
+  function onOrientation(e){
+    var h=null, abs=false;
+    if(e.webkitCompassHeading!=null && !isNaN(e.webkitCompassHeading)){ h=e.webkitCompassHeading; abs=true; }
+    else if(e.type==='deviceorientationabsolute' && e.alpha!=null){ h=(360-e.alpha)%360; abs=true; }
+    else if(e.absolute && e.alpha!=null){ h=(360-e.alpha)%360; abs=true; }
+    else if(e.alpha!=null){ h=(360-e.alpha)%360; abs=false; }
+    if(h==null) return;
+    setHeading(h, abs);
+  }
+
   function startOrientation(){
-    if(typeof DeviceOrientationEvent==='undefined'){ status('设备不支持方向传感器'); setTimeout(function(){status('');},1500); return; }
+    if(typeof DeviceOrientationEvent==='undefined'){ status('设备不支持方向传感器'); setTimeout(function(){status('');},2000); return; }
     function bind(){
       window.addEventListener('deviceorientationabsolute', onOrientation, true);
       window.addEventListener('deviceorientation', onOrientation, true);
+      orientSeen=false;
+      clearTimeout(orientTimer);
+      orientTimer=setTimeout(function(){
+        if(!orientSeen) status('未收到方向数据：设备无指南针或权限未允许（iOS 需在弹窗点“允许”）');
+        setTimeout(function(){status('');},3500);
+      }, 2500);
     }
     if(typeof DeviceOrientationEvent.requestPermission==='function'){
       DeviceOrientationEvent.requestPermission().then(function(r){
-        if(r==='granted'){ bind(); status('方向已开启（转动手机校准）'); }
-        else status('方向权限被拒绝');
-        setTimeout(function(){status('');},2000);
-      }).catch(function(){ status('无法获取方向权限'); setTimeout(function(){status('');},2000); });
-    }else{ bind(); status('方向已开启（转动手机校准）'); setTimeout(function(){status('');},1500); }
+        if(r==='granted'){ bind(); status('方向已开启，转动手机校准'); }
+        else status('方向权限被拒绝：请在 设置→Safari→运动与方向 里允许');
+        setTimeout(function(){status('');},2500);
+      }).catch(function(err){ status('方向权限请求失败：'+err); setTimeout(function(){status('');},3000); });
+    }else{
+      bind();
+      status('方向已开启，转动手机校准');
+      setTimeout(function(){status('');},1500);
+    }
   }
 
   function setLocBtn(){
@@ -1092,6 +1137,11 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
   // 进入页面即开始实时定位（浏览器会弹一次权限询问）
   startLive();
+
+  // 安卓等无需授权方向，自动开启；iOS 需用户点“方向”按钮授权
+  if(typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission!=='function'){
+    startOrientation();
+  }
 
   var mode='foot', opt='distance';
 
