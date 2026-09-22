@@ -733,6 +733,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <button class="btn" id="locate">定位</button>
     <button class="btn on" id="follow">跟随</button>
     <button class="btn" id="compass">方向</button>
+    <button class="btn" id="sched">课表</button>
     <button class="btn" id="clear">清除</button>
   </div>
   <div class="hint" id="hint">点击地图设置<b>起点</b>，再点一次设置<b>终点</b>。</div>
@@ -1238,6 +1239,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     if(routeLine){ map.removeLayer(routeLine); routeLine=null; }
   }
   document.getElementById('nav').onclick=function(){ if(navMode) stopNav(); else startNav(); };
+  document.getElementById('sched').onclick=function(){ location.href='schedule.html'; };
 
   // 进入页面即开始实时定位（浏览器会弹一次权限询问）
   startLive();
