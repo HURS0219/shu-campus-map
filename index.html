@@ -1025,7 +1025,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   }
 
   var start=null, end=null, startM=null, endM=null, routeLine=null;
-  var meMarker=null, meCircle=null, meCone=null, watchId=null;
+  var meMarker=null, meCircle=null, meCone=null, meArrow=null, watchId=null;
   var lastFix=null, heading=null, follow=true, liveOn=false, lastOrient=0;
   var compassBox=document.getElementById('compassBox');
   var needle=document.getElementById('needle');
@@ -1035,28 +1035,40 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
   function stopWatch(){ if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; } }
 
-  function drawCone(){
-    if(heading==null || !lastFix){ if(meCone){ map.removeLayer(meCone); meCone=null; } return; }
-    var lon=lastFix.lon, lat=lastFix.lat, L=35, half=25;
+  function buildWedge(lon, lat, hdg, len, half){
     var pts=[[lat,lon]];
     for(var a=-half;a<=half;a+=5){
-      var th=(heading+a)*Math.PI/180;
-      var dlat=(L*Math.cos(th))/111320;
-      var dlon=(L*Math.sin(th))/(111320*Math.cos(lat*Math.PI/180));
+      var th=(hdg+a)*Math.PI/180;
+      var dlat=(len*Math.cos(th))/111320;
+      var dlon=(len*Math.sin(th))/(111320*Math.cos(lat*Math.PI/180));
       pts.push([lat+dlat, lon+dlon]);
     }
-    if(meCone){ meCone.setLatLngs(pts); }
-    else { meCone=L.polygon(pts,{color:'#2d6cdf',weight:1,fillColor:'#2d6cdf',fillOpacity:0.25,interactive:false}).addTo(map); }
+    return pts;
+  }
+
+  function updateHeadingGraphics(){
+    if(heading==null || !lastFix){
+      if(meCone){ map.removeLayer(meCone); meCone=null; }
+      if(meArrow){ map.removeLayer(meArrow); meArrow=null; }
+      return;
+    }
+    var lon=lastFix.lon, lat=lastFix.lat;
+    var conePts=buildWedge(lon, lat, heading, 38, 26);
+    if(meCone){ meCone.setLatLngs(conePts); }
+    else { meCone=L.polygon(conePts,{color:'#2d6cdf',weight:1,fillColor:'#2d6cdf',fillOpacity:0.20,interactive:false}).addTo(map); }
+    var arrowPts=buildWedge(lon, lat, heading, 15, 20);
+    if(meArrow){ meArrow.setLatLngs(arrowPts); }
+    else { meArrow=L.polygon(arrowPts,{color:'#ffffff',weight:1.5,fillColor:'#2d6cdf',fillOpacity:1,interactive:false}).addTo(map); }
   }
 
   function drawMe(){
     if(!lastFix) return;
     var lon=lastFix.lon, lat=lastFix.lat, acc=lastFix.acc;
+    updateHeadingGraphics();
     if(meMarker) map.removeLayer(meMarker);
     meMarker=L.circleMarker([lat,lon],{radius:7,color:'#fff',weight:2,fillColor:'#2d6cdf',fillOpacity:1}).addTo(map);
     if(meCircle) map.removeLayer(meCircle);
     if(acc>0) meCircle=L.circle([lat,lon],{radius:acc,color:'#2d6cdf',weight:1,fillColor:'#2d6cdf',fillOpacity:0.12,interactive:false}).addTo(map);
-    drawCone();
     if(follow) map.setView([lat,lon], Math.max(map.getZoom(),17), {animate:false});
   }
 
@@ -1075,7 +1087,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     if(compassKind) compassKind.textContent = rawAbsolute ? '磁北(绝对)' : '相对·需校准';
     if(compassRaw) compassRaw.textContent = 'raw '+Math.round(rawHeading)+'° '+(rawAbsolute?'abs':'rel')+' Δ'+Math.round(headingOffset)+'°';
     var now=Date.now();
-    if(now-lastOrient>100){ lastOrient=now; drawCone(); }
+    if(now-lastOrient>100){ lastOrient=now; updateHeadingGraphics(); }
   }
 
   function setHeading(h, absolute){
