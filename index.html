@@ -682,6 +682,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   .btn.primary{background:#2d6cdf;color:#fff;font-weight:600;}
   .btn:active{opacity:.7;}
   .hint{font-size:12px;color:#666;line-height:1.4;}
+  #navTime{font-size:22px;font-weight:700;color:#1a1a2e;line-height:1.2;}
   #bottom{bottom:0;left:0;right:0;border-radius:14px 14px 0 0;max-height:46%;overflow:auto;
           padding:10px 12px calc(10px + env(safe-area-inset-bottom));display:none;}
   #bottom.show{display:block;}
@@ -727,6 +728,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   </div>
   <div class="row">
     <button class="btn primary" id="go">规划路线</button>
+    <button class="btn" id="nav">导航</button>
     <button class="btn" id="swap">互换</button>
     <button class="btn" id="locate">定位</button>
     <button class="btn on" id="follow">跟随</button>
@@ -734,6 +736,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <button class="btn" id="clear">清除</button>
   </div>
   <div class="hint" id="hint">点击地图设置<b>起点</b>，再点一次设置<b>终点</b>。</div>
+  <div id="navInfo" style="display:none">
+    <div id="navTime">--</div>
+    <div class="hint" id="navSub"></div>
+  </div>
 </div>
 
 <div id="legend" class="panel">
@@ -759,6 +765,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   </svg>
   <div class="deg" id="compassDeg">--°</div>
   <div class="sub" id="compassKind"></div>
+  <div class="sub" id="compassGps"></div>
   <div class="sub" id="compassRaw"></div>
   <div style="margin-top:3px;">
     <button class="mini" id="calMinus">−</button>
@@ -1031,6 +1038,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   var needle=document.getElementById('needle');
   var compassDeg=document.getElementById('compassDeg');
   var compassKind=document.getElementById('compassKind');
+  var compassGps=document.getElementById('compassGps');
   var orientSeen=false, orientTimer=null;
 
   function stopWatch(){ if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; } }
@@ -1056,7 +1064,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     var conePts=buildWedge(lon, lat, heading, 38, 26);
     if(meCone){ meCone.setLatLngs(conePts); }
     else { meCone=L.polygon(conePts,{color:'#2d6cdf',weight:1,fillColor:'#2d6cdf',fillOpacity:0.20,interactive:false}).addTo(map); }
-    var arrowPts=buildWedge(lon, lat, heading, 15, 20);
+    var arrowPts=buildWedge(lon, lat, heading, 22, 22);
     if(meArrow){ meArrow.setLatLngs(arrowPts); }
     else { meArrow=L.polygon(arrowPts,{color:'#ffffff',weight:1.5,fillColor:'#2d6cdf',fillOpacity:1,interactive:false}).addTo(map); }
   }
@@ -1161,10 +1169,13 @@ svg.leaflet-image-layer.leaflet-interactive path {
     watchId=navigator.geolocation.watchPosition(function(pos){
       var c=pos.coords;
       lastFix={lon:c.longitude, lat:c.latitude, acc:c.accuracy};
+      if(compassGps) compassGps.textContent='GPS ±'+Math.round(c.accuracy)+'m';
       drawMe();
+      navigate(false);
       status('已定位 ±'+Math.round(c.accuracy)+' 米');
       setTimeout(function(){ if(status.textContent && status.textContent.indexOf('已定位')===0) status(''); },1200);
     }, function(err){
+      if(compassGps) compassGps.textContent='GPS 无';
       var msg={1:'定位被拒绝，请在浏览器设置中允许定位',2:'无法获取位置（可能在室内）',3:'定位超时'}[err.code]||'定位失败';
       status(msg); setTimeout(function(){status('');},3000);
     }, {enableHighAccuracy:true, timeout:20000, maximumAge:1000});
@@ -1182,6 +1193,51 @@ svg.leaflet-image-layer.leaflet-interactive path {
   map.on('dragstart', function(){
     if(follow){ follow=false; document.getElementById('follow').classList.remove('on'); }
   });
+
+  // ---------- 导航模式（实时以当前位置为起点，显示剩余距离/时间） ----------
+  var navMode=false, navDestNode=null, lastNavTime=0;
+
+  function nodeForCoord(lon,lat,m){
+    var s=core.snap(lon,lat,m);
+    if(!s) return null;
+    var e=core.edges[s.i];
+    return s.t<0.5 ? e[0] : e[1];
+  }
+
+  function navigate(force){
+    if(!navMode || !end || !lastFix) return;
+    var now=Date.now();
+    if(!force && now-lastNavTime<3000) return;
+    lastNavTime=now;
+    var sNode=nodeForCoord(lastFix.lon,lastFix.lat,mode);
+    if(sNode==null) return;
+    if(navDestNode==null) navDestNode=nodeForCoord(end[0],end[1],mode);
+    if(navDestNode==null) return;
+    var res=core.shortestPath(sNode,navDestNode,mode,opt);
+    var tEl=document.getElementById('navTime'), sEl=document.getElementById('navSub');
+    if(!res){ if(tEl) tEl.textContent='无可用路线'; if(sEl) sEl.textContent=''; return; }
+    if(routeLine) map.removeLayer(routeLine);
+    var pts=res.pathNodes.map(function(n){ var p=core.nodes[n]; return [p[1],p[0]]; });
+    routeLine=L.polyline(pts,{color:'#e02020',weight:5,opacity:0.95}).addTo(map);
+    var eta=new Date(now+res.time*1000);
+    if(tEl) tEl.textContent='剩余 '+(res.length>=1000?(res.length/1000).toFixed(2)+' 公里':Math.round(res.length)+' 米')+' · '+fmtTime(res.time);
+    if(sEl) sEl.textContent='预计 '+('0'+eta.getHours()).slice(-2)+':'+('0'+eta.getMinutes()).slice(-2)+' 到达';
+  }
+
+  function startNav(){
+    if(!end){ status('请先在地图上点一下设置终点'); setTimeout(function(){status('');},1800); return; }
+    navMode=true; navDestNode=null;
+    document.getElementById('nav').classList.add('on');
+    document.getElementById('navInfo').style.display='block';
+    navigate(true);
+  }
+  function stopNav(){
+    navMode=false;
+    var b=document.getElementById('nav'); if(b) b.classList.remove('on');
+    var ni=document.getElementById('navInfo'); if(ni) ni.style.display='none';
+    if(routeLine){ map.removeLayer(routeLine); routeLine=null; }
+  }
+  document.getElementById('nav').onclick=function(){ if(navMode) stopNav(); else startNav(); };
 
   // 进入页面即开始实时定位（浏览器会弹一次权限询问）
   startLive();
@@ -1252,6 +1308,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   }
 
   map.on('click', function(ev){
+    if(navMode){ setEnd(ev.latlng.lng, ev.latlng.lat); navDestNode=null; navigate(true); return; }
     if(!start){ setStart(ev.latlng.lng, ev.latlng.lat); }
     else if(!end){ setEnd(ev.latlng.lng, ev.latlng.lat); doRoute(); }
     else { clearRoute(); map.removeLayer(startM); map.removeLayer(endM);
@@ -1268,11 +1325,12 @@ svg.leaflet-image-layer.leaflet-interactive path {
       cb(e.target.getAttribute('data-v'));
     });
   }
-  segWire('modeSeg', function(v){ mode=v; if(start&&end) doRoute(); });
-  segWire('optSeg', function(v){ opt=v; if(start&&end) doRoute(); });
+  segWire('modeSeg', function(v){ mode=v; navDestNode=null; if(navMode) navigate(true); else if(start&&end) doRoute(); });
+  segWire('optSeg', function(v){ opt=v; if(navMode) navigate(true); else if(start&&end) doRoute(); });
 
   document.getElementById('go').onclick = doRoute;
   document.getElementById('clear').onclick = function(){
+    stopNav();
     clearRoute();
     if(startM) map.removeLayer(startM);
     if(endM) map.removeLayer(endM);
